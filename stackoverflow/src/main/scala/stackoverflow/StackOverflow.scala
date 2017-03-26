@@ -24,7 +24,7 @@ object StackOverflow extends StackOverflow {
     val raw     = rawPostings(lines)
     val grouped = groupedPostings(raw)
     val scored  = scoredPostings(grouped) //.sample(true, 0.1, 0)
-    val vectors = vectorPostings(scored)
+    val vectors = vectorPostings(scored).cache()
     assert(vectors.count() == 2121822, "Incorrect number of vectors: " + vectors.count())
 
     val means   = kmeans(sampleVectors(vectors), vectors, debug = true)
@@ -277,6 +277,18 @@ class StackOverflow extends Serializable {
   //  Displaying results:
   //
   //
+  private[this] def median(xs: List[Int]): Int = {
+    val xsSorted = xs.sortWith(_ < _)
+    val xsLen = xs.length
+    if (xsLen % 2 != 0)
+      xsSorted.drop(xsLen / 2).head
+    else {
+      val xsStart = xsLen / 2 - 1
+      val xsSortedDropped = xsSorted.drop(xsStart)
+      (xsSortedDropped.head + xsSortedDropped.tail.head) / 2
+    }
+  }
+
   def clusterResults(means: Array[(Int, Int)], vectors: RDD[(Int, Int)]): Array[(String, Double, Int, Int)] = {
     val closest = vectors.map(p => (findClosest(p, means), p))
     val closestGrouped: RDD[(Int, Iterable[(Int, Int)])] = closest.groupByKey()
@@ -286,7 +298,7 @@ class StackOverflow extends Serializable {
       val langLabel: String   = langs(langIndex / langSpread)
       val clusterSize: Int    = vs.size
       val langPercent: Double = vs.count(_._1 == langIndex) / clusterSize.toDouble
-      val medianScore: Int    = vs.map(_._2).toList.sortWith(_ < _).drop(clusterSize / 2).head
+      val medianScore: Int    = median(vs.map(_._2).toList)
 
       (langLabel, langPercent, clusterSize, medianScore)
     }
