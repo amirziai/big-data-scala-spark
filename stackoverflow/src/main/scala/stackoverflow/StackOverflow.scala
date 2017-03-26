@@ -277,7 +277,7 @@ class StackOverflow extends Serializable {
   //  Displaying results:
   //
   //
-  private[this] def median(xs: List[Int]): Int = {
+  private[this] def medianCalculation(xs: List[Int]): Int = {
     val xsSorted = xs.sortWith(_ < _)
     val xsLen = xs.length
     if (xsLen % 2 != 0)
@@ -298,7 +298,7 @@ class StackOverflow extends Serializable {
       val langLabel: String   = langs(langIndex / langSpread)
       val clusterSize: Int    = vs.size
       val langPercent: Double = vs.count(_._1 == langIndex) / clusterSize.toDouble
-      val medianScore: Int    = median(vs.map(_._2).toList)
+      val medianScore: Int    = medianCalculation(vs.map(_._2).toList)
 
       (langLabel, langPercent, clusterSize, medianScore)
     }
