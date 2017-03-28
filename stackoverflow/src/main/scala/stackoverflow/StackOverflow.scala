@@ -1,8 +1,6 @@
 package stackoverflow
 
-import org.apache.spark.SparkConf
-import org.apache.spark.SparkContext
-import org.apache.spark.SparkContext._
+import org.apache.spark.{SparkConf, SparkContext, RangePartitioner}
 import org.apache.spark.rdd.RDD
 import annotation.tailrec
 import scala.reflect.ClassTag
@@ -24,8 +22,8 @@ object StackOverflow extends StackOverflow {
     val raw     = rawPostings(lines)
     val grouped = groupedPostings(raw)
     val scored  = scoredPostings(grouped) //.sample(true, 0.1, 0)
-    val vectors = vectorPostings(scored).cache()
-    assert(vectors.count() == 2121822, "Incorrect number of vectors: " + vectors.count())
+    val vectors = vectorPostings(scored)
+    // assert(vectors.count() == 2121822, "Incorrect number of vectors: " + vectors.count())
 
     val means   = kmeans(sampleVectors(vectors), vectors, debug = true)
     val results = clusterResults(means, vectors)
@@ -83,8 +81,23 @@ class StackOverflow extends Serializable {
       posting <- postings.filter(_.postingType == 2)
       parentId <- posting.parentId
     } yield (parentId, posting)
-    val joined = questions.join(answers)
-    joined.groupByKey()
+
+    // Alternative solution with partitions
+    // Got this from http://www.codegist.net/snippet/scala/stackoverflowscala_chebbimohamedmehdi_scala
+//    val pairedPostings = postings.map{ posting =>
+//      posting.postingType match {
+//        case 1 => (posting.id, posting)
+//        case 2 => (posting.parentId.get, posting)
+//      }
+//    }
+//    val partitioner = new RangePartitioner(8, pairedPostings)
+//    val questions = pairedPostings.filter(_._2.postingType == 1)
+//    val answers = pairedPostings.filter(_._2.postingType == 2)
+//
+//    questions.partitionBy(partitioner).persist()
+//    answers.partitionBy(partitioner).persist()
+//
+    questions.join(answers).groupByKey()
   }
 
 
@@ -124,7 +137,9 @@ class StackOverflow extends Serializable {
       }
     }
 
-    scored.map(score => (firstLangInTag(score._1.tags, langs).getOrElse(0) * langSpread, score._2))
+    val output = scored.map(score => (firstLangInTag(score._1.tags, langs).getOrElse(0) * langSpread, score._2))
+    output.cache()
+    output
   }
 
 
@@ -182,6 +197,10 @@ class StackOverflow extends Serializable {
     val closest = vectors.map(vector => (findClosest(vector, means), vector))
     val updatedMeans = closest.groupByKey().mapValues(averageVectors).collect().toMap
     val newMeans = means.indices.map(i => updatedMeans.getOrElse(i, means(i))).toArray
+
+//    val averagesOfClusters =means.map{ (_, Array())}.toMap ++ vectors.collect().groupBy( a => means(findClosest(a, means)))
+//
+//    val newMeans =  means.map(mean => averageVectors(averagesOfClusters(mean)))
 
     // TODO: Fill in the newMeans array
     val distance = euclideanDistance(means, newMeans)
@@ -297,7 +316,7 @@ class StackOverflow extends Serializable {
       val langIndex = vs.groupBy(_._1).maxBy(_._2.size)._1
       val langLabel: String   = langs(langIndex / langSpread)
       val clusterSize: Int    = vs.size
-      val langPercent: Double = vs.count(_._1 == langIndex) / clusterSize.toDouble
+      val langPercent: Double = 100 * vs.count(_._1 == langIndex) / clusterSize.toDouble
       val medianScore: Int    = medianCalculation(vs.map(_._2).toList)
 
       (langLabel, langPercent, clusterSize, medianScore)
